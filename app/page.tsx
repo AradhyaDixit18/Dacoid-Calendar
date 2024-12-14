@@ -5,6 +5,7 @@ export default function Home() {
   return (
 <main>
   <Calendar/>
+  <p className="text-center mt-16">Made by Aradhh</p>
 </main>
   );
 }

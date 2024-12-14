@@ -23,9 +23,10 @@ const Calendar: React.FC = () => {
   const [isDialogOpen, setIsDialogOpen] = useState<boolean>(false);
   const [newEventTitle, setNewEventTitle] = useState<string>("");
   const [selectedDate, setSelectedDate] = useState<DateSelectArg | null>(null);
+  const [filterKeyword, setFilterKeyword] = useState<string>("");
+  const [eventColor, setEventColor] = useState<string>("#FFFFFF"); // Default color
 
   useEffect(() => {
-    // Load events from local storage when the component mounts
     if (typeof window !== "undefined") {
       const savedEvents = localStorage.getItem("events");
       if (savedEvents) {
@@ -35,7 +36,6 @@ const Calendar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Save events to local storage whenever they change
     if (typeof window !== "undefined") {
       localStorage.setItem("events", JSON.stringify(currentEvents));
     }
@@ -47,7 +47,6 @@ const Calendar: React.FC = () => {
   };
 
   const handleEventClick = (selected: EventClickArg) => {
-    // Prompt user for confirmation before deleting an event
     if (
       window.confirm(
         `Are you sure you want to delete the event "${selected.event.title}"?`
@@ -60,13 +59,27 @@ const Calendar: React.FC = () => {
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
     setNewEventTitle("");
+    setEventColor("#FFFFFF"); // Reset color on close
   };
 
   const handleAddEvent = (e: React.FormEvent) => {
     e.preventDefault();
     if (newEventTitle && selectedDate) {
-      const calendarApi = selectedDate.view.calendar; // Get the calendar API instance.
-      calendarApi.unselect(); // Unselect the date range.
+      const calendarApi = selectedDate.view.calendar;
+      calendarApi.unselect();
+
+      const overlappingEvent = currentEvents.find(
+        (event) =>
+          (selectedDate.start! >= event.start! &&
+            selectedDate.start! < event.end!) ||
+          (selectedDate.end! > event.start! &&
+            selectedDate.end! <= event.end!)
+      );
+
+      if (overlappingEvent) {
+        alert("Overlapping events are not allowed.");
+        return;
+      }
 
       const newEvent = {
         id: `${selectedDate.start.toISOString()}-${newEventTitle}`,
@@ -74,11 +87,34 @@ const Calendar: React.FC = () => {
         start: selectedDate.start,
         end: selectedDate.end,
         allDay: selectedDate.allDay,
+        backgroundColor: eventColor, 
       };
 
       calendarApi.addEvent(newEvent);
       handleCloseDialog();
     }
+  };
+
+  const filteredEvents = currentEvents.filter((event) =>
+    event.title.toLowerCase().includes(filterKeyword.toLowerCase())
+  );
+
+  const exportEvents = () => {
+    const eventsForMonth = currentEvents.filter(
+      (event) =>
+        event.start &&
+        new Date(event.start).getMonth() === new Date().getMonth()
+    );
+
+    const data = JSON.stringify(eventsForMonth, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "events.json";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -88,61 +124,73 @@ const Calendar: React.FC = () => {
           <div className="py-10 text-2xl font-extrabold px-7">
             Calendar Events
           </div>
-          <ul className="space-y-4">
-            {currentEvents.length <= 0 && (
+          <input
+            type="text"
+            placeholder="Filter events..."
+            value={filterKeyword}
+            onChange={(e) => setFilterKeyword(e.target.value)}
+            className="mb-4 p-2 border rounded-md"
+          />
+          <button
+            onClick={exportEvents}
+            className="bg-blue-500 text-white p-2 rounded-md"
+          >
+            Export Events
+          </button>
+          <ul className="space-y-4 mt-4">
+            {filteredEvents.length <= 0 && (
               <div className="italic text-center text-gray-400">
                 No Events Present
               </div>
             )}
 
-            {currentEvents.length > 0 &&
-              currentEvents.map((event: EventApi) => (
-                <li
-                  className="border border-gray-200 shadow px-4 py-2 rounded-md text-blue-800"
-                  key={event.id}
-                >
-                  {event.title}
-                  <br />
-                  <label className="text-slate-950">
-                    {formatDate(event.start!, {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                    })}{" "}
-                    {/* Format event start date */}
-                  </label>
-                </li>
-              ))}
+            {filteredEvents.map((event: EventApi) => (
+              <li
+                className="border border-gray-200 shadow px-4 py-2 rounded-md text-blue-800"
+                key={event.id}
+                style={{ backgroundColor: event.backgroundColor }} 
+              >
+                {event.title}
+                <br />
+                <label className="text-slate-950">
+                  {formatDate(event.start!, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </label>
+              </li>
+            ))}
           </ul>
         </div>
 
         <div className="w-9/12 mt-8">
           <FullCalendar
             height={"85vh"}
-            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]} // Initialize calendar with required plugins.
+            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
             headerToolbar={{
               left: "prev,next today",
               center: "title",
               right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek",
-            }} // Set header toolbar options.
-            initialView="dayGridMonth" // Initial view mode of the calendar.
-            editable={true} // Allow events to be edited.
-            selectable={true} // Allow dates to be selectable.
-            selectMirror={true} // Mirror selections visually.
-            dayMaxEvents={true} // Limit the number of events displayed per day.
-            select={handleDateClick} // Handle date selection to create new events.
-            eventClick={handleEventClick} // Handle clicking on events (e.g., to delete them).
-            eventsSet={(events) => setCurrentEvents(events)} // Update state with current events whenever they change.
+            }}
+            initialView="dayGridMonth"
+            editable={true}
+            droppable={true}
+            selectable={true}
+            selectMirror={true}
+            dayMaxEvents={true}
+            select={handleDateClick}
+            eventClick={handleEventClick}
+            eventsSet={(events) => setCurrentEvents(events)}
             initialEvents={
               typeof window !== "undefined"
                 ? JSON.parse(localStorage.getItem("events") || "[]")
                 : []
-            } // Initial events loaded from local storage.
+            }
           />
         </div>
       </div>
 
-      {/* Dialog for adding new events */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -153,17 +201,25 @@ const Calendar: React.FC = () => {
               type="text"
               placeholder="Event Title"
               value={newEventTitle}
-              onChange={(e) => setNewEventTitle(e.target.value)} // Update new event title as the user types.
+              onChange={(e) => setNewEventTitle(e.target.value)}
               required
               className="border border-gray-200 p-3 rounded-md text-lg"
             />
+            <div className="mt-4">
+              <label className="block text-gray-700">Event Color:</label>
+              <input
+                type="color"
+                value={eventColor}
+                onChange={(e) => setEventColor(e.target.value)}
+                className="w-12 h-12 border border-gray-300 rounded-md"
+              />
+            </div>
             <button
               className="bg-green-500 text-white p-3 mt-5 rounded-md"
               type="submit"
             >
               Add
-            </button>{" "}
-            {/* Button to submit new event */}
+            </button>
           </form>
         </DialogContent>
       </Dialog>
@@ -171,4 +227,4 @@ const Calendar: React.FC = () => {
   );
 };
 
-export default Calendar; // Export the Calendar component for use in other parts of the application.
+export default Calendar;
